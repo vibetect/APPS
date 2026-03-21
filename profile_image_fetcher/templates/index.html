@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Profile Image Fetcher</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f0f;
+      color: #e8e8e8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      padding: 40px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    h1 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+
+    .subtitle {
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 32px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      background: #111;
+      border: 1px solid #2e2e2e;
+      border-radius: 10px;
+      color: #e8e8e8;
+      font-size: 0.95rem;
+      padding: 12px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+      margin-bottom: 20px;
+    }
+
+    input[type="text"]:focus { border-color: #555; }
+    input[type="text"]::placeholder { color: #3a3a3a; }
+
+    .size-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+
+    .size-btn {
+      flex: 1;
+      padding: 9px 0;
+      border-radius: 8px;
+      border: 1px solid #2e2e2e;
+      background: #111;
+      color: #777;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .size-btn:hover { border-color: #444; color: #bbb; }
+
+    .size-btn.active {
+      background: #222;
+      border-color: #555;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    button#fetch-btn {
+      width: 100%;
+      padding: 13px;
+      border-radius: 10px;
+      border: none;
+      background: #fff;
+      color: #000;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    button#fetch-btn:hover { opacity: 0.9; }
+    button#fetch-btn:active { transform: scale(0.98); }
+    button#fetch-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Result area */
+    #result {
+      margin-top: 32px;
+      display: none;
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #222;
+      margin-bottom: 28px;
+    }
+
+    .preview-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    #preview-img {
+      border-radius: 50%;
+      border: 3px solid #2e2e2e;
+      width: 140px;
+      height: 140px;
+      object-fit: cover;
+      background: #111;
+    }
+
+    .username-label {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .meta {
+      font-size: 0.78rem;
+      color: #555;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .meta span { color: #777; }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      margin-top: 4px;
+    }
+
+    .btn-secondary {
+      flex: 1;
+      padding: 10px;
+      border-radius: 9px;
+      border: 1px solid #2e2e2e;
+      background: transparent;
+      color: #bbb;
+      font-size: 0.85rem;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      transition: border-color 0.15s, color 0.15s;
+      display: block;
+    }
+
+    .btn-secondary:hover { border-color: #555; color: #fff; }
+
+    /* Error */
+    #error-msg {
+      display: none;
+      margin-top: 20px;
+      padding: 12px 16px;
+      background: #1f0e0e;
+      border: 1px solid #4a1a1a;
+      border-radius: 9px;
+      color: #f87171;
+      font-size: 0.85rem;
+    }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #00000040;
+      border-top-color: #000;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Profile Image Fetcher</h1>
+    <p class="subtitle">Fetch and save X.com profile pictures</p>
+
+    <label for="profile-input">Username or URL</label>
+    <input
+      type="text"
+      id="profile-input"
+      placeholder="e.g. lunarcrush or https://x.com/lunarcrush"
+      autocomplete="off"
+      spellcheck="false"
+    />
+
+    <label>Image Size</label>
+    <div class="size-row">
+      <button class="size-btn" data-size="100">100px</button>
+      <button class="size-btn active" data-size="200">200px</button>
+      <button class="size-btn" data-size="400">400px</button>
+      <button class="size-btn" data-size="800">800px</button>
+    </div>
+
+    <button id="fetch-btn">Fetch Image</button>
+
+    <div id="error-msg"></div>
+
+    <div id="result">
+      <hr class="divider" />
+      <div class="preview-wrap">
+        <img id="preview-img" src="" alt="Profile picture" />
+        <div class="username-label" id="username-label"></div>
+        <div class="meta" id="meta-info"></div>
+        <div class="actions">
+          <a id="download-btn" class="btn-secondary" href="#" download>Download</a>
+          <button id="copy-url-btn" class="btn-secondary">Copy URL</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let selectedSize = 200;
+    let lastFilename = "";
+
+    // Size buttons
+    document.querySelectorAll(".size-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".size-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        selectedSize = parseInt(btn.dataset.size);
+      });
+    });
+
+    // Enter key triggers fetch
+    document.getElementById("profile-input").addEventListener("keydown", e => {
+      if (e.key === "Enter") document.getElementById("fetch-btn").click();
+    });
+
+    document.getElementById("fetch-btn").addEventListener("click", async () => {
+      const profile = document.getElementById("profile-input").value.trim();
+      if (!profile) return;
+
+      const btn = document.getElementById("fetch-btn");
+      const errorEl = document.getElementById("error-msg");
+      const resultEl = document.getElementById("result");
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Fetching...';
+      errorEl.style.display = "none";
+      resultEl.style.display = "none";
+
+      try {
+        const resp = await fetch("/fetch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profile, size: selectedSize }),
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          throw new Error(data.error || "Unknown error");
+        }
+
+        // Populate result
+        document.getElementById("preview-img").src = `/image/${data.filename}?t=${Date.now()}`;
+        document.getElementById("username-label").textContent = `@${data.username}`;
+        document.getElementById("meta-info").innerHTML =
+          `<span>${data.filename}</span> &middot; <span>${data.size_kb} KB</span><br>` +
+          `Saved to: <span title="${data.saved_path}">${truncatePath(data.saved_path)}</span>`;
+
+        lastFilename = data.filename;
+        document.getElementById("download-btn").href = `/download/${data.filename}`;
+        document.getElementById("download-btn").download = data.filename;
+
+        resultEl.style.display = "block";
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = "block";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Fetch Image";
+      }
+    });
+
+    document.getElementById("copy-url-btn").addEventListener("click", () => {
+      const img = document.getElementById("preview-img");
+      // Get original avatar URL from the meta, or just copy the local URL
+      const url = img.src.replace(`/image/`, window.location.origin + "/image/");
+      navigator.clipboard.writeText(img.src).then(() => {
+        const btn = document.getElementById("copy-url-btn");
+        btn.textContent = "Copied!";
+        setTimeout(() => btn.textContent = "Copy URL", 1500);
+      });
+    });
+
+    function truncatePath(path) {
+      if (path.length <= 48) return path;
+      return "..." + path.slice(-45);
+    }
+  </script>
+</body>
+</html>
