@@ -43,6 +43,10 @@ def fetch_json(url: str, api_key: str = None) -> dict:
         return json.loads(resp.read().decode())
 
 
+class FetcherError(Exception):
+    """Raised when the fetcher cannot resolve or download a profile image."""
+
+
 def get_avatar_url(username: str, size: int, api_key: str = None) -> str:
     """
     Resolve the avatar URL for an X.com username.
@@ -56,15 +60,14 @@ def get_avatar_url(username: str, size: int, api_key: str = None) -> str:
     try:
         data = fetch_json(url, api_key=api_key)
     except HTTPError as e:
-        print(f"Error: HTTP {e.code} fetching profile for '{username}'")
+        hint = ""
         if e.code == 401:
-            print("  Tip: Set LUNARCRUSH_API_KEY env variable or pass --api-key")
+            hint = " (set LUNARCRUSH_API_KEY env variable or pass --api-key)"
         elif e.code == 404:
-            print(f"  Profile '@{username}' not found on LunarCrush")
-        sys.exit(1)
+            hint = f" (profile '@{username}' not found on LunarCrush)"
+        raise FetcherError(f"HTTP {e.code} fetching profile for '{username}'{hint}") from e
     except URLError as e:
-        print(f"Error: Network failure - {e.reason}")
-        sys.exit(1)
+        raise FetcherError(f"Network failure: {e.reason}") from e
 
     # The API may return a single object or wrap results in a "data" key
     creator = data.get("data") or data
@@ -101,21 +104,17 @@ def download_image(url: str, output_path: str) -> None:
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
-            content_type = resp.headers.get("Content-Type", "")
             data = resp.read()
 
         if not data:
-            print("Error: Downloaded image is empty")
-            sys.exit(1)
+            raise FetcherError("Downloaded image was empty")
 
         with open(output_path, "wb") as f:
             f.write(data)
     except HTTPError as e:
-        print(f"Error: HTTP {e.code} downloading image from:\n  {url}")
-        sys.exit(1)
+        raise FetcherError(f"HTTP {e.code} downloading image") from e
     except URLError as e:
-        print(f"Error: Network failure downloading image - {e.reason}")
-        sys.exit(1)
+        raise FetcherError(f"Network failure downloading image: {e.reason}") from e
 
 
 def main():
@@ -152,7 +151,11 @@ def main():
     username = parse_username(args.profile)
     print(f"Fetching profile image for: @{username}")
 
-    avatar_url = get_avatar_url(username, size=args.size, api_key=args.api_key)
+    try:
+        avatar_url = get_avatar_url(username, size=args.size, api_key=args.api_key)
+    except FetcherError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
     print(f"Avatar URL: {avatar_url}")
 
     ext = "png" if avatar_url.lower().endswith(".png") else "jpg"
