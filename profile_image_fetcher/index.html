@@ -42,62 +42,6 @@
       margin-bottom: 28px;
     }
 
-    /* API key panel */
-    details {
-      margin-bottom: 20px;
-      border: 1px solid #e8e8e8;
-      border-radius: 10px;
-      overflow: hidden;
-    }
-
-    summary {
-      padding: 10px 14px;
-      font-size: 0.82rem;
-      font-weight: 500;
-      color: #555;
-      cursor: pointer;
-      user-select: none;
-      list-style: none;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    summary::-webkit-details-marker { display: none; }
-
-    summary::before {
-      content: "▸";
-      font-size: 0.7rem;
-      transition: transform 0.15s;
-      display: inline-block;
-    }
-
-    details[open] summary::before { transform: rotate(90deg); }
-
-    .api-key-hint { color: #aaa; font-weight: 400; }
-
-    .api-key-body {
-      padding: 0 14px 14px;
-      border-top: 1px solid #f0f0f0;
-    }
-
-    .api-key-body label {
-      display: block;
-      font-size: 0.76rem;
-      font-weight: 500;
-      color: #888;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      margin: 12px 0 6px;
-    }
-
-    .api-key-note {
-      font-size: 0.75rem;
-      color: #aaa;
-      margin-top: 8px;
-      line-height: 1.5;
-    }
-
     /* Form fields */
     label {
       display: block;
@@ -294,22 +238,7 @@
 <body>
   <div class="card">
     <h1>Profile Image Fetcher</h1>
-    <p class="subtitle">Fetch X.com profile pictures via LunarCrush</p>
-
-    <details id="api-key-panel" open>
-      <summary>API Key <span class="api-key-hint">(required)</span></summary>
-      <div class="api-key-body">
-        <label for="api-key-input">LunarCrush API Key</label>
-        <input type="password" id="api-key-input"
-               placeholder="Paste your API key..."
-               autocomplete="off" spellcheck="false" />
-        <p class="api-key-note">
-          A LunarCrush API key is required. Get one free at
-          <a href="https://lunarcrush.com/developers/api/authentication" target="_blank" rel="noopener">lunarcrush.com/developers</a>.
-          Stored in your browser's localStorage — sent only to lunarcrush.com.
-        </p>
-      </div>
-    </details>
+    <p class="subtitle">Fetch X.com profile pictures — no API key required</p>
 
     <label for="profile-input">Username or URL</label>
     <input type="text" id="profile-input"
@@ -346,101 +275,47 @@
   </div>
 
   <script>
-    // --- CONFIG & CONSTANTS ---
-    const LUNARCRUSH_API_BASE = 'https://lunarcrush.com/api4/public';
-    const LUNARCRUSH_IMAGE_BASE = 'https://lunarcrush.com/gi';
-    const LS_KEY = 'lc_api_key';
+    // --- CONFIG ---
+    const UNAVATAR_BASE = 'https://unavatar.io/x';
 
     // --- STATE ---
     let selectedSize = 200;
     let currentAvatarUrl = '';
     let currentUsername = '';
 
-    // --- CUSTOM ERRORS ---
-    class CorsOrNetworkError extends Error {}
-    class ApiError extends Error {
-      constructor(status, body) {
-        super(`HTTP ${status}`);
-        this.status = status;
-        this.body = body;
-      }
-    }
-
-    // --- STORAGE ---
-    function loadApiKey() { return localStorage.getItem(LS_KEY) || ''; }
-    function saveApiKey(key) {
-      key ? localStorage.setItem(LS_KEY, key) : localStorage.removeItem(LS_KEY);
-    }
-
-    // --- USERNAME PARSING (port of fetcher.py::parse_username) ---
+    // --- USERNAME PARSING ---
     function parseUsername(input) {
       const m = input.match(/(?:x\.com|twitter\.com)\/([A-Za-z0-9_]+)/);
       if (m) return m[1];
       return input.replace(/^@/, '').trim();
     }
 
-    // --- LUNARCRUSH API ---
-    async function fetchCreatorData(username, apiKey) {
-      const url = `${LUNARCRUSH_API_BASE}/creator/x/${encodeURIComponent(username)}/v1`;
-      const headers = { 'Accept': 'application/json' };
-      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-
+    // --- AVATAR FETCH (unavatar.io) ---
+    async function fetchAvatarUrl(username) {
+      const url = `${UNAVATAR_BASE}/${encodeURIComponent(username)}?json`;
       let resp;
       try {
-        resp = await fetch(url, { headers });
+        resp = await fetch(url);
       } catch (err) {
-        throw new CorsOrNetworkError(err.message);
+        throw new Error('Network error — check your internet connection.');
       }
+      if (resp.status === 404) throw new Error(`Profile <strong>@${username}</strong> was not found.`);
+      if (!resp.ok) throw new Error(`Could not fetch profile (HTTP ${resp.status}).`);
+      const data = await resp.json();
+      return data.url || null;
+    }
 
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => '');
-        throw new ApiError(resp.status, body);
+    // --- SIZE VARIANT ---
+    // Twitter CDN URLs contain "_normal" — swap it for a larger size variant.
+    const SIZE_SUFFIX = { 100: '_bigger', 200: '_200x200', 400: '_400x400', 800: '_400x400' };
+    function applySize(url, size) {
+      if (url.includes('pbs.twimg.com') && url.includes('_normal')) {
+        return url.replace('_normal', SIZE_SUFFIX[size] ?? '_400x400');
       }
-      return resp.json();
+      return url; // non-Twitter CDN: return as-is
     }
 
-    // --- AVATAR URL RESOLUTION (port of fetcher.py::get_avatar_url) ---
-    function resolveAvatarUrl(data, size) {
-      let creator = data.data || data;
-      if (Array.isArray(creator)) creator = creator[0] || {};
-
-      // Strategy 1: direct URL fields
-      for (const field of ['profile_image_url', 'profile_image', 'avatar', 'avatar_url', 'image']) {
-        const val = creator[field];
-        if (val && String(val).startsWith('http')) return val;
-      }
-
-      // Strategy 2: extract twitter UID from creator_id e.g. "twitter::123456"
-      const creatorId = String(creator.creator_id || creator.id || '');
-      const m = creatorId.match(/twitter::(\d+)/);
-      if (m) return `${LUNARCRUSH_IMAGE_BASE}/w:${size}/cr:twitter::${m[1]}.png`;
-
-      // Strategy 3: plain uid / user_id
-      const uid = creator.uid || creator.user_id;
-      if (uid) return `${LUNARCRUSH_IMAGE_BASE}/w:${size}/cr:twitter::${uid}.png`;
-
-      return null;
-    }
-
-    // --- ERROR MESSAGE BUILDERS ---
-    function buildCorsErrorMessage(username) {
-      return `The request was blocked — this is likely a CORS restriction or network issue.<br><br>
-        Options:<br>
-        &bull; Run the Flask server instead: <code>python app.py</code><br>
-        &bull; Enter a LunarCrush API key above — authenticated requests may behave differently<br>
-        &bull; Check your internet connection<br><br>
-        <a href="${LUNARCRUSH_API_BASE}/creator/x/${encodeURIComponent(username)}/v1" target="_blank">
-          Try the API URL directly ↗
-        </a>`;
-    }
-
-    function buildApiErrorMessage(err, username) {
-      if (err.status === 401) return `Unauthorized (401) — a LunarCrush API key is required. Get one free at <a href="https://lunarcrush.com/developers/api/authentication" target="_blank" rel="noopener">lunarcrush.com/developers ↗</a>, then paste it in the API Key field above.`;
-      if (err.status === 404) return `Profile <strong>@${username}</strong> was not found on LunarCrush.`;
-      return `API error ${err.status}. Check the LunarCrush API status.`;
-    }
-
-    // --- UI STATE HELPERS ---
+    // --- UI HELPERS ---
     function setLoading(on) {
       const btn = document.getElementById('fetch-btn');
       btn.disabled = on;
@@ -464,14 +339,11 @@
     function showResult(username, avatarUrl) {
       currentAvatarUrl = avatarUrl;
       currentUsername = username;
-
       document.getElementById('preview-img').src = avatarUrl;
       document.getElementById('username-label').textContent = `@${username}`;
-
       const shortUrl = avatarUrl.replace(/^https?:\/\//, '');
       document.getElementById('meta-info').innerHTML =
         `${selectedSize}px &middot; <a href="${avatarUrl}" target="_blank" title="${avatarUrl}">${shortUrl.length > 50 ? shortUrl.slice(0, 47) + '…' : shortUrl}</a>`;
-
       document.getElementById('download-note').style.display = 'none';
       document.getElementById('result').style.display = 'block';
     }
@@ -480,7 +352,6 @@
     async function doFetch() {
       const raw = document.getElementById('profile-input').value.trim();
       if (!raw) return;
-
       const username = parseUsername(raw);
       if (!username) { showError('Could not parse a username from the input.'); return; }
 
@@ -488,37 +359,28 @@
       hideResult();
       setLoading(true);
 
-      let creatorData;
+      let baseUrl;
       try {
-        creatorData = await fetchCreatorData(username, loadApiKey());
+        baseUrl = await fetchAvatarUrl(username);
       } catch (err) {
-        if (err instanceof CorsOrNetworkError) {
-          showError(buildCorsErrorMessage(username));
-        } else if (err instanceof ApiError) {
-          showError(buildApiErrorMessage(err, username));
-        } else {
-          showError('Unexpected error: ' + err.message);
-        }
+        showError(err.message);
         setLoading(false);
         return;
       }
 
-      const avatarUrl = resolveAvatarUrl(creatorData, selectedSize);
-      if (!avatarUrl) {
-        showError('Could not determine the avatar URL from the API response.');
+      if (!baseUrl) {
+        showError('Could not determine the avatar URL.');
         setLoading(false);
         return;
       }
 
-      showResult(username, avatarUrl);
+      showResult(username, applySize(baseUrl, selectedSize));
       setLoading(false);
     }
 
     // --- COPY IMAGE ---
     async function copyImage() {
       const btn = document.getElementById('copy-img-btn');
-
-      // Try clipboard image API (Chrome/Edge)
       if (typeof ClipboardItem !== 'undefined') {
         try {
           const resp = await fetch(currentAvatarUrl);
@@ -529,8 +391,6 @@
           return;
         } catch (_) { /* fall through */ }
       }
-
-      // Fallback: copy URL as text
       try {
         await navigator.clipboard.writeText(currentAvatarUrl);
         btn.textContent = 'URL copied!';
@@ -544,14 +404,10 @@
     // --- DOWNLOAD ---
     async function downloadImage() {
       const filename = `${currentUsername}_profile.png`;
-
-      // Primary: blob → object URL → <a download>
       try {
         const resp = await fetch(currentAvatarUrl);
         if (!resp.ok) throw new Error('fetch failed');
         const blob = await resp.blob();
-
-        // Progressive enhancement: File System Access API (Chrome/Edge)
         if ('showSaveFilePicker' in window) {
           try {
             const handle = await window.showSaveFilePicker({ suggestedName: filename });
@@ -560,11 +416,9 @@
             await writable.close();
             return;
           } catch (e) {
-            if (e.name === 'AbortError') return; // user cancelled
-            // fall through to blob URL approach
+            if (e.name === 'AbortError') return;
           }
         }
-
         const blobUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = blobUrl;
@@ -572,30 +426,13 @@
         a.click();
         setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
         return;
-      } catch (_) { /* fall through to new-tab fallback */ }
-
-      // Fallback: open in new tab
+      } catch (_) { /* fall through */ }
       window.open(currentAvatarUrl, '_blank');
       document.getElementById('download-note').style.display = 'block';
     }
 
     // --- EVENT WIRING ---
     document.addEventListener('DOMContentLoaded', () => {
-      // Restore API key from storage
-      const storedKey = loadApiKey();
-      const keyInput = document.getElementById('api-key-input');
-      if (storedKey) {
-        keyInput.value = storedKey;
-      }
-
-      // Persist API key on input (debounced)
-      let saveTimer;
-      keyInput.addEventListener('input', () => {
-        clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => saveApiKey(keyInput.value.trim()), 300);
-      });
-
-      // Size buttons
       document.querySelectorAll('.size-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
@@ -603,12 +440,9 @@
           selectedSize = parseInt(btn.dataset.size);
         });
       });
-
-      // Enter key in input
       document.getElementById('profile-input').addEventListener('keydown', e => {
         if (e.key === 'Enter') doFetch();
       });
-
       document.getElementById('fetch-btn').addEventListener('click', doFetch);
       document.getElementById('copy-img-btn').addEventListener('click', copyImage);
       document.getElementById('download-btn').addEventListener('click', downloadImage);
